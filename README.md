@@ -16,7 +16,7 @@ This lab demonstrates how to detect Windows registry-based persistence using Sys
 
 Detect registry persistence created through:
 
-`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
+HKCU\Software\Microsoft\Windows\CurrentVersion\Run
 
 and capture:
 
@@ -29,13 +29,13 @@ and capture:
 
 ### Command Used
 
-```cmd
+```
 reg add HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v Test5 /t REG_SZ /d "calc.exe"
 ```
 
 ### What It Does
 
-This command creates a user-level Run key value that causes `calc.exe` to launch when the user logs in.
+This command creates a user-level Run key value that causes calc.exe to launch when the user logs in.
 
 ### MITRE ATT&CK
 
@@ -47,39 +47,45 @@ The simulated persistence generated:
 
 * Sysmon Event ID 13 (Registry value set)
 
-Validation path:
+Validation steps:
 
 1. Confirmed the event in Event Viewer on the Windows VM
 2. Confirmed the event was ingested into Splunk
-3. Confirmed the event could be detected with increasingly refined queries
+3. Confirmed the event could be detected with refined queries
+
+---
 
 ## Detection Evolution
 
 ### 1. Raw Telemetry Check
 
-Initial search used to validate Sysmon registry events in Splunk:
+Initial search:
 
-```spl
+```
 index=main "EventID>13"
 ```
 
-This worked because the data was initially being ingested as raw XML rather than fully parsed fields.
+This worked because the data was ingested as raw XML rather than parsed fields.
+
+---
 
 ### 2. Payload-Based Detection
 
 Initial detection pivot:
 
-```spl
+```
 index=main "calc.exe"
 ```
 
-This confirmed that the payload appeared in Splunk, but it was tied to a specific executable and not the persistence behavior itself.
+This confirmed that the payload executed, validating persistence, but lacked behavioral context.
+
+---
 
 ### 3. Behavior-Based Detection with Context
 
 Final detection query:
 
-```spl
+```
 index=main sourcetype="XmlWinEventLog:Microsoft-Windows-Sysmon/Operational"
 | xmlkv
 | search EventID=13
@@ -91,66 +97,107 @@ index=main sourcetype="XmlWinEventLog:Microsoft-Windows-Sysmon/Operational"
 | table _time User Image TargetObject Details
 ```
 
-### Why This Query Matters
+### Why This Matters
 
-This final query detects the persistence behavior rather than a single payload. It identifies:
+This query detects persistence behavior rather than a specific payload and captures:
 
-* the user account involved
-* the process responsible for writing the registry value
-* the exact autorun location modified
-* the payload configured to execute at logon
+* user context
+* process responsible (reg.exe)
+* registry path modified
+* payload written
+
+---
 
 ## Key Findings
 
-* Raw XML ingestion can prevent direct field-based searching
-* `EventID=13` did not initially work as expected because the fields were not fully searchable at base search time
-* `xmlkv` extracted top-level XML fields such as `EventID`
-* nested Sysmon `<Data Name="...">` values still required `rex` extraction
-* behavior-based detection is stronger than payload-based detection
-* a valid detection query can still return zero results when no fresh matching telemetry exists in the selected time range
+* Sysmon successfully captured registry persistence (Event ID 13)
+* Splunk ingested logs as raw XML requiring manual extraction
+* Field-based queries initially failed due to lack of parsing
+* xmlkv + rex enabled structured detection
+* Behavior-based detection is more reliable than payload-based detection
+* Valid detections can return zero results if no recent telemetry exists
+
+---
 
 ## Troubleshooting
 
 ### Issue 1
 
-**Problem:** `EventCode=13` / `EventID=13` searches initially returned no results
+Problem: EventID=13 searches returned no results
 
-**Root Cause:** Sysmon logs were ingested as raw XML without fully searchable extracted fields
+Root Cause: Logs were ingested as raw XML without extracted fields
 
-**Fix:** Validated events using raw string searches and then moved to `xmlkv` plus targeted `rex` extraction
+Fix:
 
-**Lesson Learned:** Always verify whether data is parsed or raw before relying on field-based queries
+* Used raw string search ("EventID>13")
+* Applied xmlkv and rex for field extraction
+
+Lesson Learned:
+
+* Always validate parsing before relying on structured fields
+
+---
 
 ### Issue 2
 
-**Problem:** Final detection query returned zero results
+Problem: Final detection query returned zero results
 
-**Root Cause:** No recent Run key persistence event existed within the selected time range
+Root Cause: No matching event existed in the selected time window
 
-**Fix:** Re-ran the registry persistence command to generate fresh telemetry
+Fix:
 
-**Lesson Learned:** A valid detection can return no results if no relevant activity exists in the search window
+* Re-ran the persistence command to generate fresh telemetry
+
+Lesson Learned:
+
+* Detection logic can be correct even when no results are returned
+
+---
 
 ## Evidence Captured
 
-Recommended screenshot set:
+### 1. Sysmon Event Viewer - Event ID 13
 
-1. Sysmon Event Viewer - Event ID 13 on the endpoint
-2. Splunk raw XML view showing Event ID 13 ingestion
-3. Splunk payload pivot using `calc.exe`
-4. Splunk noise-reduction view showing filtered Run key activity
-5. Splunk final detection query showing user, process, target object, and payload
+![Sysmon Event Viewer](screenshots/01_sysmon_event_viewer_eventid13.png)
+
+---
+
+### 2. Splunk Raw XML Event (Event ID 13)
+
+![Splunk Raw Event](screenshots/02_splunk_raw_eventid13.png)
+
+---
+
+### 3. Payload-Based Detection (calc.exe)
+
+![Payload Detection](screenshots/03_splunk_calc_detection.png)
+
+---
+
+### 4. Noise Reduction / Filtering
+
+![Noise Reduction](screenshots/04_splunk_noise_reduction.png)
+
+---
+
+### 5. Final Behavior-Based Detection (Run Key Persistence)
+
+![Final Detection](screenshots/05_splunk_final_detection_context.png)
+
+---
 
 ## Skills Demonstrated
 
 * Windows registry persistence analysis
 * Sysmon telemetry validation
-* Splunk search and troubleshooting
-* Search-time XML field extraction
+* Splunk log ingestion troubleshooting
+* XML field extraction using xmlkv and rex
 * Detection tuning and noise reduction
-* Behavior-based detection development
+* Behavior-based detection engineering
 * Incident-style documentation
+
+---
 
 ## Conclusion
 
-This lab progressed from simple telemetry validation to a behavior-based persistence detection with investigation context. The most valuable part of the exercise was not just generating the event, but diagnosing why initial detection logic failed and refining the query based on how the data was actually parsed in Splunk.
+This lab demonstrates the progression from basic telemetry validation to a behavior-based detection capable of identifying registry persistence with full context. The key takeaway is that detection engineering depends heavily on understanding how data is ingested and parsed, and adapting detection logic accordingly.
